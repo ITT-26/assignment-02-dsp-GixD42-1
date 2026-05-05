@@ -47,8 +47,11 @@ class VoiceTranslator:
         if freq > 0:
             # formula from https://en.wikipedia.org/wiki/MIDI_tuning_standard
             midi = int(round(69 + 12 * np.log2(freq / 440.0)))
+
+            # for smoothing
             self.history.append(midi)
 
+            # max history length
             if len(self.history) > self.history_size:
                 self.history.pop(0)
         else:
@@ -85,6 +88,7 @@ class VoiceTranslator:
         return float(freqs[mask][np.argmax(hps[mask])])
 
     def to_midi(self):
+        # smoothing with median of history -> less jumping around
         if not self.history:
             return None
         return int(np.median(self.history))
