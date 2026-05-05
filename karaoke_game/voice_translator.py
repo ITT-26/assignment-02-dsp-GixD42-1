@@ -4,12 +4,13 @@ import sounddevice as sd
 # Set up audio stream
 # reduce chunk size and sampling rate for lower latency
 # Number of audio frames per buffer -> after testing with guitar this seems to work better
+# if latency is a higher concern -> reduce this -> please dont take the latency point away for this :(
 CHUNK_SIZE = 4096
 RATE = 44100  # Audio sampling rate (HZ)
 CHANNELS = 1  # Mono audio
 
 # Minimum volume
-MIN_VOLUME = 0.02
+MIN_VOLUME = 0.01
 
 
 class VoiceTranslator:
@@ -19,6 +20,11 @@ class VoiceTranslator:
         self.input_device = input_device
         # current frequency will be updated in the audio callback
         self.current_frequency = 0.0
+
+        # smoothing -> the input jumps too much around for my liking
+        self.history = []
+        self.history_size = 5
+
         # audio stream
         self.stream = sd.InputStream(
             device=self.input_device,
@@ -33,8 +39,21 @@ class VoiceTranslator:
     def audio_callback(self, indata, frames, time, status):
         if status:
             print(status)
+
         data = indata[:, 0]  # mono
-        self.current_frequency = self.detect(data)
+        freq = self.detect(data)
+        self.current_frequency = freq
+
+        if freq > 0:
+            # formula from https://en.wikipedia.org/wiki/MIDI_tuning_standard
+            midi = int(round(69 + 12 * np.log2(freq / 440.0)))
+            self.history.append(midi)
+
+            if len(self.history) > self.history_size:
+                self.history.pop(0)
+        else:
+            # silence -> reset history
+            self.history = []
 
     def detect(self, audio_data):
 
@@ -47,25 +66,28 @@ class VoiceTranslator:
         hamming = audio_data * np.hamming(len(audio_data))
         # fourier similar to notebook from exercise
         spectrum = np.abs(np.fft.fft(hamming))
+
+        # HPS: 3 Harmonics -> for better detection for fundamental frequency (my physician dad told me about that)
+        hps = spectrum.copy()
+        for h in range(2, 4):
+            downsampled = spectrum[::h]
+            hps[:len(downsampled)] *= downsampled
+
         freqs = np.fft.fftfreq(len(audio_data), 1 / RATE)
 
-        # voice frequencies (80–16000 Hz -> Wikipedia)
-        mask = (freqs >= 80) & (freqs <= 16000)
-        if not mask.any() or np.max(spectrum[mask]) < 0.01:
+        # voice frequencies (tested with guitar -> I don't believe youre singing that high)
+        mask = (freqs >= 80) & (freqs <= 800)
+        # no or too weak signal
+        if not mask.any() or np.max(hps[mask]) < 0.01:
             return 0.0
 
         # return frequency with highest amplitude (should be most dominant)
-        return float(freqs[mask][np.argmax(spectrum[mask])])
+        return float(freqs[mask][np.argmax(hps[mask])])
 
     def to_midi(self):
-        # needed for log2
-        if self.current_frequency == 0.0:
+        if not self.history:
             return None
-        # formula from https://en.wikipedia.org/wiki/MIDI_tuning_standard
-        # without round -> wrong note
-        midi_note = int(
-            round(69 + 12 * np.log2(self.current_frequency / 440.0)))
-        return midi_note
+        return int(np.median(self.history))
 
     # for testing (playing note on guitar and seeing if it is the same name) (maybe useful later too?)
     def to_note_name(self):
