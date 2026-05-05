@@ -65,8 +65,19 @@ class WhistleController:
         spectrum = np.abs(np.fft.rfft(hamming))
         freqs = np.fft.rfftfreq(len(audio_data), 1 / RATE)
 
+        # mask: only consider frequencies in whistle range (1000 Hz – 4000 Hz -> google said 1300 - 4000 but it didn't work well for my whistles)
+        freq_mask = (freqs >= 1000) & (freqs <= 4000)
+        masked_spectrum = spectrum * freq_mask
+
         # peak frequency is the detected frequency
-        peak_idx = np.argmax(spectrum)
+        peak_idx = np.argmax(masked_spectrum)
+
+        # if the peak is not strong enough -> probably background noise -> ignore
+        peak_val = masked_spectrum[peak_idx]
+        mean_val = np.mean(masked_spectrum[freq_mask])
+        if peak_val < 5 * mean_val:
+            return None
+
         return freqs[peak_idx]
 
     # classifies chirps
