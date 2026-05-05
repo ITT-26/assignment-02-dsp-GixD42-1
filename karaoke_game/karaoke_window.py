@@ -80,6 +80,12 @@ class KaraokeWindow(pyglet.window.Window):
         self.translator.stop()
         super().on_close()
 
+    # restart if space is pressed
+    def on_key_press(self, symbol, modifiers):
+        if symbol == pyglet.window.key.SPACE and not self.game.running:
+            self.countdown = 3.0
+            self.game_started = False
+
     def note_to_y(self, note):
         # Range of midi notes that can be displayed
         note_min, note_max = 40, 90
