@@ -3,11 +3,14 @@ import sounddevice as sd
 
 # Set up audio stream
 # reduce chunk size and sampling rate for lower latency
-CHUNK_SIZE = 1024  # Number of audio frames per buffer
+# Chunk size lower, so we get more frequent updates -> better for chirps (in testing)
+CHUNK_SIZE = 512  # Number of audio frames per buffer
 RATE = 44100  # Audio sampling rate (HZ)
 CHANNELS = 1  # Mono audio
 
 MIN_VOLUME = 0.01
+
+DEBUG = True
 
 
 class WhistleController:
@@ -19,6 +22,11 @@ class WhistleController:
         # history of the last frequencies
         self.history = []
         self.max_history = 20
+
+        # silence for a single frame shouldnt count as a break in the whistle -> counter for silent frames
+        self.silent_counter = 0
+        # if counter is above -> break in whistle
+        self.silent_counter_threshold = 3
 
         # audio stream
         self.stream = sd.InputStream(
@@ -39,16 +47,24 @@ class WhistleController:
 
         if freq is not None:
             self.history.append(freq)
+            self.silent_counter = 0
         # No sound
         else:
-            # Sound was there before -> interpret history
-            if len(self.history) >= 5:
-                direction = self.interpret_history()
-                # if a chirp is interpreted -> callback function (used for controls)
-                if direction:
-                    if self.onchirp:
-                        self.onchirp(direction)
-            self.history = []
+            # silent frame
+            self.silent_counter += 1
+            # Detected break in whistle -> interpret history
+            if self.silent_counter >= self.silent_counter_threshold:
+                # check if the whistle was long enough
+                if len(self.history) >= 5:
+                    direction = self.interpret_history()
+                    # if a chirp is interpreted -> callback function (used for controls)
+                    if direction:
+                        if self.onchirp:
+                            self.onchirp(direction)
+                self.history = []
+            else:
+                if DEBUG:
+                    print(f"SILENCE_FRAME {self.silent_counter}")
 
     # extract frequency from audio data
     def detect(self, audio_data):
@@ -69,16 +85,37 @@ class WhistleController:
         freq_mask = (freqs >= 1000) & (freqs <= 4000)
         masked_spectrum = spectrum * freq_mask
 
+        # flatness: to differentiate between chirp and speech
+        # chirp is more "clean/pure" than speech
+
+        masked_vals = masked_spectrum[freq_mask]
+        # geometric mean / arithmetic mean -> flatness measure -> close to 0 for speech, close to 1 for pure tones
+        # formula from https://en.wikipedia.org/wiki/Spectral_flatness
+        g_mean = np.exp(np.mean(np.log(masked_vals + 1e-10)))
+        a_mean = np.mean(masked_vals)
+        flatness = g_mean / a_mean
+
+        if flatness > 0.2:
+            if DEBUG:
+                print(f"[REJECT] flatness={flatness:.4f} (too high), rms={rms:.4f}")
+            return None
+
         # peak frequency is the detected frequency
         peak_idx = np.argmax(masked_spectrum)
 
         # if the peak is not strong enough -> probably background noise -> ignore
         peak_val = masked_spectrum[peak_idx]
         mean_val = np.mean(masked_spectrum[freq_mask])
+        prominence = peak_val / mean_val
         if peak_val < 5 * mean_val:
+            if DEBUG:
+                print(f"[REJECT] prominence={prominence:.1f}x (too low), flatness={flatness:.4f}")
             return None
 
-        return freqs[peak_idx]
+        freq = freqs[peak_idx]
+        if DEBUG:
+            print(f"[DETECT] freq={freq:.1f} Hz, flatness={flatness:.4f}, prominence={prominence:.1f}x, rms={rms:.4f}")
+        return freq
 
     # classifies chirps
     def interpret_history(self):
@@ -105,13 +142,17 @@ class WhistleController:
         up_steps = np.mean(diffs > 0)
         down_steps = np.mean(diffs < 0)
 
+        if DEBUG:
+            print("CHECKING HISTORY:", len(self.history))
+            print(f"delta_median={delta_median:.1f}, up_steps={up_steps:.2f}, down_steps={down_steps:.2f}")
+
         # upward trend and mostly up steps -> up chirp
-        if delta_median > 80 and up_steps > 0.5:
+        if delta_median > 40 and up_steps >= 0.5:
             self.history = []
             return "up"
 
         # downward trend and mostly down steps -> down chirp
-        if delta_median < -80 and down_steps > 0.5:
+        if delta_median < -30 and down_steps >= 0.5:
             self.history = []
             return "down"
 
