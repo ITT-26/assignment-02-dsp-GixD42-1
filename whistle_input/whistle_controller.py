@@ -47,6 +47,9 @@ class WhistleController:
 
         if freq is not None:
             self.history.append(freq)
+            # Max history length
+            if len(self.history) > self.max_history:
+                self.history.pop(0)
             self.silent_counter = 0
         # No sound
         else:
