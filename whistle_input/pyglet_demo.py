@@ -18,6 +18,7 @@ for i, dev in enumerate(devices):
 input_device = int(input("\nSelect input device: "))
 
 
+# constants for pyglet
 WINDOW_WIDTH = 400
 WINDOW_HEIGHT = 400
 NUM_RECTANGLES = 5
@@ -25,11 +26,16 @@ RECT_HEIGHT = 50
 RECT_WIDTH = 100
 RECT_GAP = 10
 
+
+# window
 window = pyglet.window.Window(
     WINDOW_WIDTH, WINDOW_HEIGHT, caption="Whistle Controller Demo")
+
+# starting rectangle (highest)
 selected_index = NUM_RECTANGLES - 1
 
 
+# rectangle list
 rectangles = []
 
 # for calculating y positions of rectangles
@@ -47,11 +53,13 @@ for i in range(NUM_RECTANGLES):
     rectangles.append(rect)
 
 
+# change colors based on selected index
 def update_colors():
     for i, rect in enumerate(rectangles):
         rect.color = (255, 0, 0) if i == selected_index else (80, 80, 80)
 
 
+# draws rectangles
 @window.event
 def on_draw():
     window.clear()
@@ -59,6 +67,7 @@ def on_draw():
         rect.draw()
 
 
+# callback -> up and down for controlling selected rectangle
 def on_chirp(direction):
     global selected_index
     if direction == "up":
@@ -68,6 +77,7 @@ def on_chirp(direction):
     update_colors()
 
 
+# initial color update
 update_colors()
 
 

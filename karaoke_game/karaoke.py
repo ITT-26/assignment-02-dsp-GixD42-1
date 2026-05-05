@@ -8,7 +8,7 @@ from karaoke_window import KaraokeWindow
 
 
 if __name__ == "__main__":
-    # check command line argument
+    # in command line path to midi
     if len(sys.argv) < 2:
         print("Usage: python karaoke.py <path_to_midi_file>")
         sys.exit(1)
