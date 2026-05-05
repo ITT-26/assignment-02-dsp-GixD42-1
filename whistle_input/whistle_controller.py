@@ -1,16 +1,7 @@
 import numpy as np
 import sounddevice as sd
 
-# Set up audio stream
-# reduce chunk size and sampling rate for lower latency
-# Chunk size lower, so we get more frequent updates -> better for chirps (in testing)
-CHUNK_SIZE = 512  # Number of audio frames per buffer
-RATE = 44100  # Audio sampling rate (HZ)
-CHANNELS = 1  # Mono audio
-
-MIN_VOLUME = 0.01
-
-DEBUG = True
+from chirp_constants import *
 
 
 class WhistleController:
@@ -21,12 +12,12 @@ class WhistleController:
 
         # history of the last frequencies
         self.history = []
-        self.max_history = 20
+        self.max_history = MAX_HISTORY
 
         # silence for a single frame shouldnt count as a break in the whistle -> counter for silent frames
         self.silent_counter = 0
         # if counter is above -> break in whistle
-        self.silent_counter_threshold = 3
+        self.silent_counter_threshold = SILENT_COUNTER_THRESHOLD
 
         # audio stream
         self.stream = sd.InputStream(
@@ -58,7 +49,7 @@ class WhistleController:
             # Detected break in whistle -> interpret history
             if self.silent_counter >= self.silent_counter_threshold:
                 # check if the whistle was long enough
-                if len(self.history) >= 5:
+                if len(self.history) >= MIN_HISTORY:
                     direction = self.interpret_history()
                     # if a chirp is interpreted -> callback function (used for controls)
                     if direction:
@@ -85,7 +76,7 @@ class WhistleController:
         freqs = np.fft.rfftfreq(len(audio_data), 1 / RATE)
 
         # mask: only consider frequencies in whistle range (1000 Hz – 4000 Hz -> google said 1300 - 4000 but it didn't work well for my whistles)
-        freq_mask = (freqs >= 1000) & (freqs <= 4000)
+        freq_mask = (freqs >= FREQ_MIN) & (freqs <= FREQ_MAX)
         masked_spectrum = spectrum * freq_mask
 
         # flatness: to differentiate between chirp and speech
@@ -98,9 +89,10 @@ class WhistleController:
         a_mean = np.mean(masked_vals)
         flatness = g_mean / a_mean
 
-        if flatness > 0.2:
+        if flatness > FLATNESS_THRESHOLD:
             if DEBUG:
-                print(f"[REJECT] flatness={flatness:.4f} (too high), rms={rms:.4f}")
+                print(
+                    f"[REJECT] flatness={flatness:.4f} (too high), rms={rms:.4f}")
             return None
 
         # peak frequency is the detected frequency
@@ -110,21 +102,23 @@ class WhistleController:
         peak_val = masked_spectrum[peak_idx]
         mean_val = np.mean(masked_spectrum[freq_mask])
         prominence = peak_val / mean_val
-        if peak_val < 5 * mean_val:
+        if peak_val < PROMINENCE_FACTOR * mean_val:
             if DEBUG:
-                print(f"[REJECT] prominence={prominence:.1f}x (too low), flatness={flatness:.4f}")
+                print(
+                    f"[REJECT] prominence={prominence:.1f}x (too low), flatness={flatness:.4f}")
             return None
 
         freq = freqs[peak_idx]
         if DEBUG:
-            print(f"[DETECT] freq={freq:.1f} Hz, flatness={flatness:.4f}, prominence={prominence:.1f}x, rms={rms:.4f}")
+            print(
+                f"[DETECT] freq={freq:.1f} Hz, flatness={flatness:.4f}, prominence={prominence:.1f}x, rms={rms:.4f}")
         return freq
 
     # classifies chirps
     def interpret_history(self):
 
         # short whistle -> ignore
-        if len(self.history) < 5:
+        if len(self.history) < MIN_HISTORY:
             return None
 
         # history to np array
@@ -132,7 +126,7 @@ class WhistleController:
 
         # convolution
         history_smoothed = np.convolve(
-            history_arr, np.ones(3) / 3, mode='valid')
+            history_arr, np.ones(SMOOTHING_KERNEL) / SMOOTHING_KERNEL, mode='valid')
 
         # median of first and last third of history -> check if up or down trend
         divider = max(2, len(history_smoothed) // 3)
@@ -147,15 +141,16 @@ class WhistleController:
 
         if DEBUG:
             print("CHECKING HISTORY:", len(self.history))
-            print(f"delta_median={delta_median:.1f}, up_steps={up_steps:.2f}, down_steps={down_steps:.2f}")
+            print(
+                f"delta_median={delta_median:.1f}, up_steps={up_steps:.2f}, down_steps={down_steps:.2f}")
 
         # upward trend and mostly up steps -> up chirp
-        if delta_median > 40 and up_steps >= 0.5:
+        if delta_median > DELTA_UP and up_steps >= UP_STEPS_MIN:
             self.history = []
             return "up"
 
         # downward trend and mostly down steps -> down chirp
-        if delta_median < -30 and down_steps >= 0.5:
+        if delta_median < DELTA_DOWN and down_steps >= DOWN_STEPS_MIN:
             self.history = []
             return "down"
 
