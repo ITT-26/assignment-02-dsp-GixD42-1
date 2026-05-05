@@ -70,10 +70,15 @@ class KaraokeWindow(pyglet.window.Window):
         # end screen
         if not self.game.running:
             pyglet.text.Label(
-                f"Final Score: {self.game.percentage}%",
-                x=self.width // 2, y=self.height // 2,
+                f"Final Score: {self.game.percentage}%\n\nPress SPACE to restart",
+                x=self.width // 2,
+                y=self.height // 2,
+                width=self.width,
+                multiline=True,
+                align='center',
                 font_size=20,
-                anchor_x='center', anchor_y='center'
+                anchor_x='center',
+                anchor_y='center'
             ).draw()
 
     def on_close(self):

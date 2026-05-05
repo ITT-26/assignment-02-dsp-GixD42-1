@@ -21,12 +21,15 @@ class MidiSong:
             current_time += mido.tick2second(msg.time,
                                              midi.ticks_per_beat, tempo)
 
+            # adjust tempo to midi -> if not specified it is 120 bpm and the standard value is used
             if msg.type == "set_tempo":
                 tempo = msg.tempo
 
+            # note on -> add to active notes with start time
             elif msg.type == "note_on" and msg.velocity > 0:
                 active_notes[msg.note] = current_time
 
+            # note off -> calculate duration and add to notes list
             elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
                 if msg.note in active_notes:
                     start = active_notes.pop(msg.note)
